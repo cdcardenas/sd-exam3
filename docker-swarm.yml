@@ -1,0 +1,177 @@
+version: "3.3"
+
+services:
+
+  mysql:
+    image: mysql:latest
+    networks:
+        - net
+    volumes:
+      - type: bind
+        source: /var/volumes/mrw-cloud/mysql
+        target: /var/lib/mysql
+    environment:
+      - 'MYSQL_DATABASE=nextcloud'
+      - 'MYSQL_USER=nextcloud'
+      - 'MYSQL_PASSWORD=SomeSecretPassword'
+      - 'MYSQL_ROOT_PASSWORD=SomeSecretRootPassword'
+  nextcloud:
+    image: mwaeckerlin/nextcloud:latest
+    networks:
+      - net
+    ports:
+      - 8001:80
+    environment:
+      - 'MYSQL_PASSWORD=SomeSecretPassword'
+      - 'MAX_INPUT_TIME=7200'
+      - 'URL=mrw.cloud'
+      - 'ADMIN_PWD=GuiAdministrationPassword'
+    volumes:
+      - type: bind
+        source: /var/volumes/mrw-cloud/config
+        target: /var/www/nextcloud/config
+      - type: bind
+        source: /var/volumes/mrw-cloud/data
+        target: /var/www/nextcloud/data
+
+
+  whoami:
+    image: tutum/hello-world
+    networks:
+      - net
+    ports:
+      - "80:80" # puerto de funcionamiento
+    logging:
+      driver: "fluentd" # Logging Driver
+      options:
+        tag: tutum    # TAG
+        # fluentd-address: 127.0.0.1:24224
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 20M
+        reservations:
+          cpus: '0.05'
+          memory: 10M
+
+
+      restart_policy:
+           condition: on-failure
+           delay: 20s
+           max_attempts: 3
+           window: 120s
+      mode: replicated
+      replicas: 3
+
+      placement:
+        constraints: [node.role == worker] # Se ejecutara en los dos nodos workers
+      update_config:
+        delay: 2s
+
+  vizualizer:
+      image: dockersamples/visualizer
+      volumes:
+         - /var/run/docker.sock:/var/run/docker.sock
+      ports:
+        - "8080:8080"
+      networks:
+        - net
+      logging:
+        driver: "fluentd"
+        options:
+         tag: visualizer   #TAG
+      deploy:
+          restart_policy:
+             condition: on-failure
+             delay: 20s
+             max_attempts: 3
+             window: 120s
+          mode: replicated # un contenedor por nodo manager
+          replicas: 1
+          update_config:
+            delay: 2s
+          placement:
+             constraints: [node.role == manager]
+
+  fluentd:
+    image: cdcardenas/myfluentd:v0.1.0
+    volumes:
+      #- ./Logs:/fluentd/log
+      - ./fluentd/conf:/fluentd/etc
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    networks:
+      - net
+    deploy:
+      restart_policy:
+           condition: on-failure
+           delay: 20s
+           max_attempts: 3
+           window: 120s
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        delay: 2s
+
+  elasticsearch:
+    image: elasticsearch #Elastic Search
+    ports:
+      - "9200:9200"
+    networks:
+      - net
+    environment:
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    logging:
+        driver: "json-file"
+        options:
+          max-size: 10M
+          max-file: 1
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 3
+        window: 120s
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        delay: 2s
+      resources:
+        limits:
+          memory: 1000M
+    volumes:
+      - ./esdata:/usr/share/elasticsearch/data
+
+  kibana:
+    image: kibana
+    ports:
+      - "5601:5601" #puerto de funcionamiento
+    networks:
+      - net
+    logging:
+        driver: "json-file"
+        options:
+           max-size: 10M
+           max-file: 1
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 3
+        window: 120s
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager] #un contenedor por nodo manager
+      update_config:
+        delay: 2s
+
+networks:
+ net:
